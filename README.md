@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 成長トラッカー
 
-## Getting Started
+CSチームメンバーの悩み事・実践ログを蓄積し、Claude APIが次のアクションを提案する4ペインツールです。
+本人が自走して成長を実感できるように、進捗の可視化・AI提案の履歴化と対話・メールリマインド・Notion連携を備えています。
 
-First, run the development server:
+## 画面構成（4ペイン＋進捗バー）
+
+- 進捗バー: 継続日数（ストリーク）、解決済み/未解決の悩み事の件数、直近8週の実践ログ件数のグラフ
+- 1. 氏名一覧（新規追加・削除）
+- 2. 悩み事・成長したいこと（追加・削除・解決済みにする・管理者への共有ON/OFF）
+- 3. 試したこと・実践したこと・その効果（日付付きで追加・削除、関連する悩み事を任意で紐付け）
+- 4. AIによる次回アクション提案（履歴を保持し、それぞれの提案に追加で質問できるチャット付き）
+
+## 認証について
+
+- **共通パスワード**（`APP_PASSWORD`）: ツール全体への入口。ログインしないと氏名一覧すら見えない。
+- **個人パスワード**: 氏名ごとに設定。自分の悩み事・実践ログ・提案（ペイン2〜4）を開くときに必要。
+- **マスターパスワード**（`MASTER_PASSWORD`）: 管理者用。個人パスワードの代わりにこれを入力すれば、誰のペイン2〜4も開ける。
+
+個人パスワード・マスターパスワードは、共通パスワードでログイン済みであることを前提にした簡易的な閲覧ロックです。暗号的に厳密なアクセス制御ではないため、より強固な保護が必要な場合は別途検討してください。
+
+### プライバシー（管理者への共有設定）
+
+各「悩み事・成長したいこと」には「管理者に共有する」チェックがあります。OFFにすると、マスターパスワードで開いた閲覧者からはその項目の内容が見えなくなり、「非公開の項目」としてのみ表示されます（本人が自分のパスワードで開いた場合は常に全項目が見えます）。AI提案の生成では、このチェックの有無に関わらず本人の全記録が使われます（提案はあくまで本人の成長支援のためのものです）。
+
+## AI提案のプロンプトについて
+
+`lib/cs-guidelines.ts` にCSチーム視点のプロンプトを定義しています。ここを編集すれば、次の提案生成（再デプロイ後）に反映されます。
+
+## セットアップ
+
+```bash
+npm install
+vercel link
+```
+
+Vercelダッシュボードの「Storage」からNeon Postgresを追加し、以下の環境変数を設定してください（`.env.example`参照）。
+
+- `DATABASE_URL`（Neonから自動設定）
+- `ANTHROPIC_API_KEY`
+- `APP_PASSWORD`
+- `MASTER_PASSWORD`（任意。設定すると管理者用マスターパスワードとして使えます）
+
+```bash
+vercel env pull .env.local --environment=production
+npm run db:migrate
+vercel --prod
+```
+
+## ローカル開発
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Notion連携（任意）
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+悩み事・実践ログ・AI提案のすべてのデータを、閲覧・整理しやすいNotionのデータベースにも自動で同期できます。Postgresが常に正のデータで、Notionは同期用のミラーです（同期に失敗してもアプリの動作は止まりません）。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. https://www.notion.so/my-integrations で新しいIntegrationを作成し、シークレットキーを取得 → `NOTION_API_KEY`
+2. Notion上に以下の3つのデータベースを作成し、各Integrationに接続（共有）する
+   - **悩み・成長目標DB**: プロパティ `内容`(タイトル) / `氏名`(テキスト) / `ステータス`(セレクト: `未解決`, `解決済み`) / `作成日`(日付)
+   - **実践ログDB**: プロパティ `内容`(タイトル) / `氏名`(テキスト) / `日付`(日付) / `詳細`(テキスト)
+   - **AI提案DB**: プロパティ `タイトル`(タイトル) / `氏名`(テキスト) / `提案内容`(テキスト) / `作成日時`(日付)
+3. 各データベースのURLからDB IDを取得し、環境変数に設定
+   - `NOTION_GOALS_DB_ID` / `NOTION_LOGS_DB_ID` / `NOTION_SUGGESTIONS_DB_ID`
 
-## Learn More
+未設定の場合、Notion同期はスキップされ、Postgresのみで通常通り動作します。
 
-To learn more about Next.js, take a look at the following resources:
+## メールリマインド（任意）
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+実践ログが数日（初期値3日）途絶えているメンバーに、毎日自動でリマインドメールを送信できます。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. https://resend.com でアカウントを作成し、APIキーを取得 → `RESEND_API_KEY`
+2. 送信元ドメインを検証し、`EMAIL_FROM` に設定（例: `growth-tracker@example.com`）
+3. `CRON_SECRET` に任意の秘密文字列を設定（Vercel Cronからの呼び出しを認可するため）
+4. [vercel.json](./vercel.json) の `crons` 設定により、`/api/cron/reminders` が毎日 UTC 1:00（JST 10:00）に自動実行される
+5. アプリ内の各メンバーの「✉ 通知設定」からメールアドレスを登録し、リマインドON/OFFを設定する
 
-## Deploy on Vercel
+リマインドのしきい値（何日ログが無ければ送るか）は [app/api/cron/reminders/route.ts](./app/api/cron/reminders/route.ts) の `REMINDER_THRESHOLD_DAYS` で変更できます。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+未設定（`RESEND_API_KEY`または`EMAIL_FROM`が無い）の場合、cronは何もせずエラーを返すのみでアプリの他機能には影響しません。
