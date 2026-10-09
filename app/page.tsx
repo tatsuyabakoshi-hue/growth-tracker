@@ -979,6 +979,30 @@ export default function Home() {
                   })}
                 </ul>
               </div>
+              {postSaveLogId &&
+                (() => {
+                  const target = logs.find((x) => x.id === postSaveLogId);
+                  if (!target) return null;
+                  return (
+                    <div className="flex items-center justify-between border-t border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      <span>記録しました。効果・気づきを追記しますか？</span>
+                      <span className="flex gap-2">
+                        <button
+                          onClick={() => startEditLog(target)}
+                          className="rounded bg-amber-600 px-2 py-0.5 text-white hover:bg-amber-700"
+                        >
+                          追記する
+                        </button>
+                        <button
+                          onClick={() => setPostSaveLogId(null)}
+                          className="text-amber-700 hover:text-amber-900"
+                        >
+                          閉じる
+                        </button>
+                      </span>
+                    </div>
+                  );
+                })()}
               <form onSubmit={handleAddLog} className="border-t border-slate-200 p-3">
                 <input
                   type="date"
