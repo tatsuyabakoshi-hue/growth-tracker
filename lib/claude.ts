@@ -23,3 +23,25 @@ export function extractText(content: Anthropic.Messages.ContentBlock[]): string 
     .join("\n")
     .trim();
 }
+
+/** 単発のテキスト生成（要約など）。ANTHROPIC_API_KEY未設定ならnullを返す。 */
+export async function generateText(
+  system: string,
+  user: string,
+  maxTokens = 400
+): Promise<string | null> {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  try {
+    const client = getClaude();
+    const message = await client.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: "user", content: user }],
+    });
+    return extractText(message.content);
+  } catch (err) {
+    console.error("[generateText failed]", err);
+    return null;
+  }
+}

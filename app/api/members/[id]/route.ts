@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { enqueueNotionJob } from "@/lib/sync";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -32,6 +33,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "メンバーが見つかりません" }, { status: 404 });
   }
 
+  await enqueueNotionJob("member", id, "upsert");
+
   return NextResponse.json(rows[0]);
 }
 
@@ -39,10 +42,15 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
   const sql = getDb();
 
-  const deleted = await sql`DELETE FROM members WHERE id = ${id} RETURNING id`;
+  const deleted = await sql`DELETE FROM members WHERE id = ${id} RETURNING id, notion_page_id`;
 
   if (deleted.length === 0) {
     return NextResponse.json({ error: "メンバーが見つかりません" }, { status: 404 });
+  }
+
+  const notionPageId = deleted[0].notion_page_id as string | null;
+  if (notionPageId) {
+    await enqueueNotionJob("member", id, "archive", { notionPageId });
   }
 
   return NextResponse.json({ ok: true });

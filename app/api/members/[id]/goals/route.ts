@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { syncToNotionSafely, upsertGoalPage } from "@/lib/notion";
+import { enqueueNotionJob } from "@/lib/sync";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -10,7 +10,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const viewer = request.nextUrl.searchParams.get("viewer");
   const sql = getDb();
   const rows = await sql`
-    SELECT id, content, status, resolved_at, visible_to_admin, created_at FROM growth_goals
+    SELECT id, content, kind, category, status, target_date, success_criteria, resolved_summary,
+           resolved_at, visible_to_admin, created_at
+    FROM growth_goals
     WHERE member_id = ${id}
     ORDER BY created_at DESC
   `;
@@ -33,6 +35,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const content = typeof body?.content === "string" ? body.content.trim() : "";
+  const kind = body?.kind === "goal" ? "goal" : "worry";
+  const category = typeof body?.category === "string" && body.category.trim() ? body.category.trim() : null;
+  const targetDate = typeof body?.target_date === "string" && body.target_date ? body.target_date : null;
+  const successCriteria =
+    typeof body?.success_criteria === "string" && body.success_criteria.trim()
+      ? body.success_criteria.trim()
+      : null;
 
   if (!content) {
     return NextResponse.json({ error: "contentは必須です" }, { status: 400 });
@@ -49,27 +58,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const createdAt = Date.now();
 
   await sql`
-    INSERT INTO growth_goals (id, member_id, content, created_at, status, visible_to_admin)
-    VALUES (${goalId}, ${id}, ${content}, ${createdAt}, 'open', true)
+    INSERT INTO growth_goals
+      (id, member_id, content, created_at, status, visible_to_admin, kind, category, target_date, success_criteria)
+    VALUES
+      (${goalId}, ${id}, ${content}, ${createdAt}, 'open', true, ${kind}, ${category}, ${targetDate}, ${successCriteria})
   `;
 
-  if (process.env.NOTION_API_KEY && process.env.NOTION_GOALS_DB_ID) {
-    const result = await syncToNotionSafely("upsertGoalPage(create)", () =>
-      upsertGoalPage({
-        memberName: memberRows[0].name as string,
-        content,
-        status: "open",
-        createdAt,
-      })
-    );
-    if (result) {
-      await sql`UPDATE growth_goals SET notion_page_id = ${result.pageId} WHERE id = ${goalId}`;
-    }
-  }
+  await enqueueNotionJob("goal", goalId, "upsert");
 
   return NextResponse.json({
     id: goalId,
     content,
+    kind,
+    category,
+    target_date: targetDate,
+    success_criteria: successCriteria,
     created_at: createdAt,
     status: "open",
     resolved_at: null,

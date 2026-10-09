@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "db:migrate": "tsx scripts/migrate.ts"
+    "db:migrate": "tsx scripts/migrate.ts",
+    "setup:notion": "tsx scripts/setup-notion.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",

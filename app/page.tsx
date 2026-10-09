@@ -1,9 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { WeeklyChart } from "./components/WeeklyChart";
+import { GrowthTimeline } from "./components/GrowthTimeline";
 
 type Role = "self" | "admin";
+
+const CS_CATEGORIES = ["対応品質", "スピード", "課題発見"];
 
 type Member = {
   id: string;
@@ -15,7 +19,12 @@ type Member = {
 type Goal = {
   id: string;
   content: string | null;
+  kind: "worry" | "goal";
+  category: string | null;
   status: "open" | "resolved";
+  target_date: string | null;
+  success_criteria: string | null;
+  resolved_summary: string | null;
   resolved_at: number | null;
   visible_to_admin: boolean;
   created_at: number;
@@ -25,6 +34,10 @@ type ActionLog = {
   id: string;
   log_date: string;
   content: string;
+  category: string | null;
+  confidence: number | null;
+  effect: string | null;
+  context: string | null;
   related_goal_id: string | null;
   created_at: number;
 };
@@ -42,6 +55,7 @@ function today(): string {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [unlockedRoles, setUnlockedRoles] = useState<Map<string, Role>>(new Map());
@@ -58,13 +72,27 @@ export default function Home() {
 
   const [goals, setGoals] = useState<Goal[]>([]);
   const [newGoal, setNewGoal] = useState("");
+  const [newGoalKind, setNewGoalKind] = useState<"worry" | "goal">("worry");
+  const [newGoalCategory, setNewGoalCategory] = useState("");
+  const [newGoalTarget, setNewGoalTarget] = useState("");
+  const [newGoalCriteria, setNewGoalCriteria] = useState("");
   const [addingGoal, setAddingGoal] = useState(false);
 
   const [logs, setLogs] = useState<ActionLog[]>([]);
   const [newLogDate, setNewLogDate] = useState(today());
   const [newLogContent, setNewLogContent] = useState("");
   const [newLogGoalId, setNewLogGoalId] = useState("");
+  const [newLogCategory, setNewLogCategory] = useState("");
+  const [newLogConfidence, setNewLogConfidence] = useState<number | null>(null);
+  const [newLogEffect, setNewLogEffect] = useState("");
+  const [newLogContext, setNewLogContext] = useState("");
   const [addingLog, setAddingLog] = useState(false);
+  const [postSaveLogId, setPostSaveLogId] = useState<string | null>(null);
+
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [logDraft, setLogDraft] = useState<Partial<ActionLog>>({});
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
+  const [goalDraft, setGoalDraft] = useState<Partial<Goal>>({});
 
   const [progress, setProgress] = useState<Progress | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -74,6 +102,7 @@ export default function Home() {
   const [sendingChat, setSendingChat] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
 
+  const [showTimeline, setShowTimeline] = useState(false);
   const [showNotifySettings, setShowNotifySettings] = useState(false);
   const [notifyEmailDraft, setNotifyEmailDraft] = useState("");
   const [notifyReminderDraft, setNotifyReminderDraft] = useState(true);
@@ -103,15 +132,20 @@ export default function Home() {
     setSuggestions((await suggestionsRes.json()).suggestions || []);
     setExpandedSuggestionId(null);
     setMessagesBySuggestion({});
+    setEditingLogId(null);
+    setEditingGoalId(null);
+    setPostSaveLogId(null);
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadMembers();
   }, [loadMembers]);
 
   useEffect(() => {
     const role = selectedId ? unlockedRoles.get(selectedId) : undefined;
     if (selectedId && role) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       loadMemberData(selectedId, role);
       const member = members.find((m) => m.id === selectedId);
       setNotifyEmailDraft(member?.email || "");
@@ -127,6 +161,7 @@ export default function Home() {
     setUnlockPassword("");
     setUnlockError("");
     setShowNotifySettings(false);
+    setShowTimeline(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, unlockedRoles, loadMemberData]);
 
@@ -215,11 +250,21 @@ export default function Home() {
       const res = await fetch(`/api/members/${selectedId}/goals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({
+          content,
+          kind: newGoalKind,
+          category: newGoalCategory || undefined,
+          target_date: newGoalKind === "goal" ? newGoalTarget || undefined : undefined,
+          success_criteria: newGoalKind === "goal" ? newGoalCriteria || undefined : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "追加に失敗しました");
       setNewGoal("");
+      setNewGoalCategory("");
+      setNewGoalTarget("");
+      setNewGoalCriteria("");
+      setNewGoalKind("worry");
       await loadMemberData(selectedId, currentRole);
     } catch (err) {
       showError(err, "追加に失敗しました");
@@ -256,15 +301,33 @@ export default function Home() {
     }
   }
 
-  async function handleToggleGoalVisibility(goal: Goal) {
+  function startEditGoal(goal: Goal) {
+    setEditingGoalId(goal.id);
+    setGoalDraft({
+      content: goal.content,
+      kind: goal.kind,
+      category: goal.category,
+      target_date: goal.target_date,
+      success_criteria: goal.success_criteria,
+    });
+  }
+
+  async function handleSaveGoal(goalId: string) {
     if (!selectedId || !currentRole) return;
     try {
-      const res = await fetch(`/api/members/${selectedId}/goals/${goal.id}`, {
+      const res = await fetch(`/api/members/${selectedId}/goals/${goalId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visible_to_admin: !goal.visible_to_admin }),
+        body: JSON.stringify({
+          content: goalDraft.content ?? undefined,
+          kind: goalDraft.kind,
+          category: goalDraft.category ?? null,
+          target_date: goalDraft.target_date ?? null,
+          success_criteria: goalDraft.success_criteria ?? null,
+        }),
       });
       if (!res.ok) throw new Error("更新に失敗しました");
+      setEditingGoalId(null);
       await loadMemberData(selectedId, currentRole);
     } catch (err) {
       showError(err, "更新に失敗しました");
@@ -284,13 +347,24 @@ export default function Home() {
           log_date: newLogDate,
           content,
           related_goal_id: newLogGoalId || undefined,
+          category: newLogCategory || undefined,
+          confidence: newLogConfidence ?? undefined,
+          effect: newLogEffect.trim() || undefined,
+          context: newLogContext.trim() || undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "追加に失敗しました");
+      const createdId = data.id as string;
+      const hadEffect = !!newLogEffect.trim();
       setNewLogContent("");
       setNewLogGoalId("");
+      setNewLogCategory("");
+      setNewLogConfidence(null);
+      setNewLogEffect("");
+      setNewLogContext("");
       await loadMemberData(selectedId, currentRole);
+      setPostSaveLogId(hadEffect ? null : createdId);
     } catch (err) {
       showError(err, "追加に失敗しました");
     } finally {
@@ -307,6 +381,44 @@ export default function Home() {
       await loadMemberData(selectedId, currentRole);
     } catch (err) {
       showError(err, "削除に失敗しました");
+    }
+  }
+
+  function startEditLog(log: ActionLog) {
+    setEditingLogId(log.id);
+    setLogDraft({
+      content: log.content,
+      log_date: log.log_date,
+      category: log.category,
+      confidence: log.confidence,
+      effect: log.effect,
+      context: log.context,
+      related_goal_id: log.related_goal_id,
+    });
+  }
+
+  async function handleSaveLog(logId: string) {
+    if (!selectedId || !currentRole) return;
+    try {
+      const res = await fetch(`/api/members/${selectedId}/logs/${logId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: logDraft.content ?? undefined,
+          log_date: logDraft.log_date ?? undefined,
+          category: logDraft.category ?? null,
+          confidence: logDraft.confidence ?? null,
+          effect: logDraft.effect ?? null,
+          context: logDraft.context ?? null,
+          related_goal_id: logDraft.related_goal_id ?? null,
+        }),
+      });
+      if (!res.ok) throw new Error("更新に失敗しました");
+      setEditingLogId(null);
+      setPostSaveLogId(null);
+      await loadMemberData(selectedId, currentRole);
+    } catch (err) {
+      showError(err, "更新に失敗しました");
     }
   }
 
@@ -400,7 +512,7 @@ export default function Home() {
 
   async function handleLogout() {
     await fetch("/api/logout", { method: "POST" });
-    window.location.href = "/login";
+    router.push("/login");
   }
 
   const selectedMember = members.find((m) => m.id === selectedId) || null;
@@ -548,7 +660,7 @@ export default function Home() {
 
       {selectedMember && isUnlocked && (
         <div className="flex flex-1 flex-col overflow-hidden">
-          {/* 進捗サマリー + 通知設定バー */}
+          {/* 進捗サマリー + 振り返り + 通知設定バー */}
           <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-slate-50 px-4 py-2">
             <div className="flex items-center gap-4 text-xs text-slate-600">
               <span>🔥 継続 {progress?.streak ?? 0}日</span>
@@ -557,13 +669,28 @@ export default function Home() {
               </span>
               {progress && <WeeklyChart data={progress.weekly_counts} />}
             </div>
-            <button
-              onClick={() => setShowNotifySettings((v) => !v)}
-              className="whitespace-nowrap text-xs text-slate-500 hover:text-slate-800"
-            >
-              ✉ 通知設定
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowTimeline((v) => !v)}
+                className="whitespace-nowrap text-xs text-slate-500 hover:text-slate-800"
+              >
+                {showTimeline ? "振り返りを閉じる" : "📈 振り返り"}
+              </button>
+              <button
+                onClick={() => setShowNotifySettings((v) => !v)}
+                className="whitespace-nowrap text-xs text-slate-500 hover:text-slate-800"
+              >
+                ✉ 通知設定
+              </button>
+            </div>
           </div>
+
+          {showTimeline && (
+            <div className="max-h-72 overflow-y-auto border-b border-slate-200 bg-white px-4 py-3">
+              <GrowthTimeline goals={goals} logs={logs} />
+            </div>
+          )}
+
           {showNotifySettings && (
             <form
               onSubmit={handleSaveNotifySettings}
@@ -602,7 +729,9 @@ export default function Home() {
               </header>
               <div className="flex-1 overflow-y-auto p-4">
                 {goals.length === 0 && (
-                  <p className="text-sm text-slate-400">まだ記載がありません</p>
+                  <p className="text-sm text-slate-400">
+                    まだ記載がありません。例:「お客様の怒りを鎮める対応が苦手」
+                  </p>
                 )}
                 {openGoals.length > 0 && (
                   <ul className="space-y-2">
@@ -610,9 +739,14 @@ export default function Home() {
                       <GoalItem
                         key={g.id}
                         goal={g}
+                        editing={editingGoalId === g.id}
+                        draft={goalDraft}
+                        onDraftChange={setGoalDraft}
+                        onStartEdit={startEditGoal}
+                        onSave={handleSaveGoal}
+                        onCancel={() => setEditingGoalId(null)}
                         onDelete={handleDeleteGoal}
                         onToggleStatus={handleToggleGoalStatus}
-                        onToggleVisibility={handleToggleGoalVisibility}
                       />
                     ))}
                   </ul>
@@ -627,9 +761,14 @@ export default function Home() {
                         <GoalItem
                           key={g.id}
                           goal={g}
+                          editing={editingGoalId === g.id}
+                          draft={goalDraft}
+                          onDraftChange={setGoalDraft}
+                          onStartEdit={startEditGoal}
+                          onSave={handleSaveGoal}
+                          onCancel={() => setEditingGoalId(null)}
                           onDelete={handleDeleteGoal}
                           onToggleStatus={handleToggleGoalStatus}
-                          onToggleVisibility={handleToggleGoalVisibility}
                         />
                       ))}
                     </ul>
@@ -637,13 +776,65 @@ export default function Home() {
                 )}
               </div>
               <form onSubmit={handleAddGoal} className="border-t border-slate-200 p-3">
+                <div className="mb-2 flex gap-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setNewGoalKind("worry")}
+                    className={`flex-1 rounded-md border px-2 py-1 ${
+                      newGoalKind === "worry"
+                        ? "border-amber-400 bg-amber-50 text-amber-700"
+                        : "border-slate-300 text-slate-500"
+                    }`}
+                  >
+                    悩み
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewGoalKind("goal")}
+                    className={`flex-1 rounded-md border px-2 py-1 ${
+                      newGoalKind === "goal"
+                        ? "border-blue-400 bg-blue-50 text-blue-700"
+                        : "border-slate-300 text-slate-500"
+                    }`}
+                  >
+                    目標
+                  </button>
+                </div>
                 <textarea
                   value={newGoal}
                   onChange={(e) => setNewGoal(e.target.value)}
-                  placeholder="悩み事・成長したいことを入力"
-                  rows={3}
+                  placeholder={newGoalKind === "goal" ? "例: 3ヶ月で一次回答時間を半分にする" : "例: クレーム対応で気持ちが落ち込む"}
+                  rows={2}
                   className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
                 />
+                <select
+                  value={newGoalCategory}
+                  onChange={(e) => setNewGoalCategory(e.target.value)}
+                  className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-slate-500 focus:outline-none"
+                >
+                  <option value="">カテゴリ（任意）</option>
+                  {CS_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                {newGoalKind === "goal" && (
+                  <>
+                    <input
+                      type="date"
+                      value={newGoalTarget}
+                      onChange={(e) => setNewGoalTarget(e.target.value)}
+                      className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-slate-500 focus:outline-none"
+                    />
+                    <input
+                      value={newGoalCriteria}
+                      onChange={(e) => setNewGoalCriteria(e.target.value)}
+                      placeholder="達成基準（任意）例: 顧客満足アンケート4.0以上"
+                      className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
+                    />
+                  </>
+                )}
                 <button
                   type="submit"
                   disabled={addingGoal || !newGoal.trim()}
@@ -661,25 +852,127 @@ export default function Home() {
               </header>
               <div className="flex-1 overflow-y-auto p-4">
                 {logs.length === 0 && (
-                  <p className="text-sm text-slate-400">まだ記録がありません</p>
+                  <p className="text-sm text-slate-400">
+                    まだ記録がありません。例:「お客様の話を最後まで遮らずに聞いてから謝罪した」
+                  </p>
                 )}
                 <ul className="space-y-2">
                   {logs.map((l) => {
                     const relatedGoal = l.related_goal_id ? goalsById.get(l.related_goal_id) : null;
+                    const editing = editingLogId === l.id;
                     return (
-                      <li key={l.id} className="rounded-md border border-slate-200 p-3 text-sm">
-                        <div className="mb-1 flex items-center justify-between">
-                          <p className="text-xs text-slate-400">{l.log_date}</p>
-                          <button
-                            onClick={() => handleDeleteLog(l.id)}
-                            className="text-xs text-slate-400 hover:text-red-600"
-                          >
-                            削除
-                          </button>
-                        </div>
-                        <p className="whitespace-pre-wrap text-slate-800">{l.content}</p>
-                        {relatedGoal && relatedGoal.content && (
-                          <p className="mt-1 truncate text-xs text-slate-400">↳ {relatedGoal.content}</p>
+                      <li
+                        key={l.id}
+                        className={`rounded-md border p-3 text-sm ${
+                          postSaveLogId === l.id ? "border-amber-400 bg-amber-50" : "border-slate-200"
+                        }`}
+                      >
+                        {editing ? (
+                          <div className="space-y-2">
+                            <input
+                              type="date"
+                              value={logDraft.log_date || ""}
+                              onChange={(e) => setLogDraft({ ...logDraft, log_date: e.target.value })}
+                              className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-slate-500 focus:outline-none"
+                            />
+                            <select
+                              value={logDraft.category || ""}
+                              onChange={(e) => setLogDraft({ ...logDraft, category: e.target.value || null })}
+                              className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 focus:border-slate-500 focus:outline-none"
+                            >
+                              <option value="">カテゴリ（必須）</option>
+                              {CS_CATEGORIES.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                            <textarea
+                              value={logDraft.content || ""}
+                              onChange={(e) => setLogDraft({ ...logDraft, content: e.target.value })}
+                              rows={2}
+                              className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-slate-500 focus:outline-none"
+                            />
+                            <textarea
+                              value={logDraft.effect || ""}
+                              onChange={(e) => setLogDraft({ ...logDraft, effect: e.target.value })}
+                              placeholder="効果・気づき（任意）"
+                              rows={2}
+                              className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-slate-500 focus:outline-none"
+                            />
+                            <input
+                              value={logDraft.context || ""}
+                              onChange={(e) => setLogDraft({ ...logDraft, context: e.target.value })}
+                              placeholder="場面・相手（任意）"
+                              className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-slate-500 focus:outline-none"
+                            />
+                            <ConfidencePicker
+                              value={logDraft.confidence ?? null}
+                              onChange={(v) => setLogDraft({ ...logDraft, confidence: v })}
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleSaveLog(l.id)}
+                                className="flex-1 rounded-md bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
+                              >
+                                保存
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingLogId(null);
+                                  setPostSaveLogId(null);
+                                }}
+                                className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                              >
+                                キャンセル
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 text-xs text-slate-400">
+                                <span>{l.log_date}</span>
+                                {l.category && (
+                                  <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
+                                    {l.category}
+                                  </span>
+                                )}
+                                {typeof l.confidence === "number" && (
+                                  <span className="text-slate-500">手応え {l.confidence}/5</span>
+                                )}
+                              </div>
+                              <div className="flex shrink-0 gap-2">
+                                <button
+                                  onClick={() => startEditLog(l)}
+                                  className="text-xs text-slate-400 hover:text-slate-700"
+                                >
+                                  編集
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteLog(l.id)}
+                                  className="text-xs text-slate-400 hover:text-red-600"
+                                >
+                                  削除
+                                </button>
+                              </div>
+                            </div>
+                            <p className="whitespace-pre-wrap text-slate-800">{l.content}</p>
+                            {l.effect && (
+                              <p className="mt-1 whitespace-pre-wrap text-xs text-slate-600">
+                                効果・気づき: {l.effect}
+                              </p>
+                            )}
+                            {l.context && <p className="mt-1 text-xs text-slate-400">場面・相手: {l.context}</p>}
+                            {relatedGoal && relatedGoal.content && (
+                              <p className="mt-1 truncate text-xs text-slate-400">↳ {relatedGoal.content}</p>
+                            )}
+                            {postSaveLogId === l.id && (
+                              <p className="mt-2 text-xs font-medium text-amber-700">
+                                記録しました。「編集」から効果・気づきを追記できます。
+                              </p>
+                            )}
+                          </>
                         )}
                       </li>
                     );
@@ -693,6 +986,41 @@ export default function Home() {
                   onChange={(e) => setNewLogDate(e.target.value)}
                   className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
                 />
+                <select
+                  value={newLogCategory}
+                  onChange={(e) => setNewLogCategory(e.target.value)}
+                  className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-600 focus:border-slate-500 focus:outline-none"
+                >
+                  <option value="">カテゴリ（必須）</option>
+                  {CS_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+                <textarea
+                  value={newLogContent}
+                  onChange={(e) => setNewLogContent(e.target.value)}
+                  placeholder="やったこと 例: 返信前に要点を3行でメモしてから書いた"
+                  rows={2}
+                  className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
+                />
+                <textarea
+                  value={newLogEffect}
+                  onChange={(e) => setNewLogEffect(e.target.value)}
+                  placeholder="効果・気づき（任意）後から追記できます"
+                  rows={2}
+                  className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
+                />
+                <input
+                  value={newLogContext}
+                  onChange={(e) => setNewLogContext(e.target.value)}
+                  placeholder="場面・相手（任意）例: 初回問い合わせの顧客"
+                  className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
+                />
+                <div className="mb-2">
+                  <ConfidencePicker value={newLogConfidence} onChange={setNewLogConfidence} />
+                </div>
                 {goals.length > 0 && (
                   <select
                     value={newLogGoalId}
@@ -709,16 +1037,9 @@ export default function Home() {
                       ))}
                   </select>
                 )}
-                <textarea
-                  value={newLogContent}
-                  onChange={(e) => setNewLogContent(e.target.value)}
-                  placeholder="試したこと・実践したこと・その効果を入力"
-                  rows={3}
-                  className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none"
-                />
                 <button
                   type="submit"
-                  disabled={addingLog || !newLogContent.trim()}
+                  disabled={addingLog || !newLogContent.trim() || !newLogCategory || !newLogConfidence}
                   className="w-full rounded-md bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-700 disabled:opacity-50"
                 >
                   記録に追加
@@ -816,16 +1137,52 @@ export default function Home() {
   );
 }
 
+function ConfidencePicker({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-xs text-slate-500">手応え</span>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(n)}
+          className={`h-6 w-6 rounded text-xs ${
+            value === n ? "bg-slate-900 text-white" : "border border-slate-300 text-slate-600 hover:bg-slate-100"
+          }`}
+        >
+          {n}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function GoalItem({
   goal,
+  editing,
+  draft,
+  onDraftChange,
+  onStartEdit,
+  onSave,
+  onCancel,
   onDelete,
   onToggleStatus,
-  onToggleVisibility,
 }: {
   goal: Goal;
+  editing: boolean;
+  draft: Partial<Goal>;
+  onDraftChange: (d: Partial<Goal>) => void;
+  onStartEdit: (goal: Goal) => void;
+  onSave: (goalId: string) => void;
+  onCancel: () => void;
   onDelete: (goalId: string) => void;
   onToggleStatus: (goal: Goal) => void;
-  onToggleVisibility: (goal: Goal) => void;
 }) {
   if (goal.hidden) {
     return (
@@ -835,22 +1192,123 @@ function GoalItem({
     );
   }
 
+  if (editing) {
+    return (
+      <li className="rounded-md border border-slate-300 p-3 text-sm">
+        <textarea
+          value={draft.content || ""}
+          onChange={(e) => onDraftChange({ ...draft, content: e.target.value })}
+          rows={2}
+          className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-slate-500 focus:outline-none"
+        />
+        <div className="mb-2 flex gap-1 text-xs">
+          <button
+            type="button"
+            onClick={() => onDraftChange({ ...draft, kind: "worry" })}
+            className={`flex-1 rounded-md border px-2 py-1 ${
+              draft.kind === "worry" ? "border-amber-400 bg-amber-50 text-amber-700" : "border-slate-300 text-slate-500"
+            }`}
+          >
+            悩み
+          </button>
+          <button
+            type="button"
+            onClick={() => onDraftChange({ ...draft, kind: "goal" })}
+            className={`flex-1 rounded-md border px-2 py-1 ${
+              draft.kind === "goal" ? "border-blue-400 bg-blue-50 text-blue-700" : "border-slate-300 text-slate-500"
+            }`}
+          >
+            目標
+          </button>
+        </div>
+        <select
+          value={draft.category || ""}
+          onChange={(e) => onDraftChange({ ...draft, category: e.target.value || null })}
+          className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 focus:border-slate-500 focus:outline-none"
+        >
+          <option value="">カテゴリ（任意）</option>
+          {CS_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        {draft.kind === "goal" && (
+          <>
+            <input
+              type="date"
+              value={draft.target_date || ""}
+              onChange={(e) => onDraftChange({ ...draft, target_date: e.target.value || null })}
+              className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 focus:border-slate-500 focus:outline-none"
+            />
+            <input
+              value={draft.success_criteria || ""}
+              onChange={(e) => onDraftChange({ ...draft, success_criteria: e.target.value })}
+              placeholder="達成基準（任意）"
+              className="mb-2 w-full rounded-md border border-slate-300 px-2 py-1 text-xs focus:border-slate-500 focus:outline-none"
+            />
+          </>
+        )}
+        <div className="flex gap-2">
+          <button
+            onClick={() => onSave(goal.id)}
+            className="flex-1 rounded-md bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-700"
+          >
+            保存
+          </button>
+          <button
+            onClick={onCancel}
+            className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100"
+          >
+            キャンセル
+          </button>
+        </div>
+      </li>
+    );
+  }
+
   return (
     <li className="rounded-md border border-slate-200 p-3 text-sm">
       <div className="flex items-start justify-between gap-2">
-        <p
-          className={`whitespace-pre-wrap ${
-            goal.status === "resolved" ? "text-slate-400 line-through" : "text-slate-800"
-          }`}
-        >
-          {goal.content}
-        </p>
-        <button
-          onClick={() => onDelete(goal.id)}
-          className="shrink-0 text-xs text-slate-400 hover:text-red-600"
-        >
-          削除
-        </button>
+        <div className="min-w-0">
+          <div className="mb-1 flex flex-wrap items-center gap-1 text-xs">
+            <span
+              className={`rounded px-1.5 py-0.5 ${
+                goal.kind === "goal" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"
+              }`}
+            >
+              {goal.kind === "goal" ? "目標" : "悩み"}
+            </span>
+            {goal.category && (
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">{goal.category}</span>
+            )}
+            {goal.target_date && <span className="text-slate-400">期限 {goal.target_date}</span>}
+          </div>
+          <p
+            className={`whitespace-pre-wrap ${
+              goal.status === "resolved" ? "text-slate-400 line-through" : "text-slate-800"
+            }`}
+          >
+            {goal.content}
+          </p>
+          {goal.success_criteria && (
+            <p className="mt-1 text-xs text-slate-500">達成基準: {goal.success_criteria}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <button
+            onClick={() => onStartEdit(goal)}
+            className="text-xs text-slate-400 hover:text-slate-700"
+          >
+            編集
+          </button>
+          <button
+            onClick={() => onDelete(goal.id)}
+            className="text-xs text-slate-400 hover:text-red-600"
+          >
+            削除
+          </button>
+        </div>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
         <button
@@ -859,14 +1317,6 @@ function GoalItem({
         >
           {goal.status === "resolved" ? "未解決に戻す" : "解決済みにする"}
         </button>
-        <label className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={goal.visible_to_admin}
-            onChange={() => onToggleVisibility(goal)}
-          />
-          管理者に共有する
-        </label>
       </div>
     </li>
   );

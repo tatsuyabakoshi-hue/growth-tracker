@@ -78,6 +78,47 @@ async function main() {
   `;
   await sql`CREATE INDEX IF NOT EXISTS idx_messages_suggestion ON suggestion_messages (suggestion_id, created_at ASC)`;
 
+  // v2: 目標/悩みの構造化（kind=worry|goal、期限・達成基準・解決時の要約）
+  await sql`
+    ALTER TABLE growth_goals
+      ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'worry',
+      ADD COLUMN IF NOT EXISTS category TEXT,
+      ADD COLUMN IF NOT EXISTS target_date TEXT,
+      ADD COLUMN IF NOT EXISTS success_criteria TEXT,
+      ADD COLUMN IF NOT EXISTS resolved_summary TEXT
+  `;
+
+  // v2: 実践ログの構造化（content=やったこと、effect=効果、confidence=手応え1-5、category=CS3軸、context=場面・相手）
+  await sql`
+    ALTER TABLE action_logs
+      ADD COLUMN IF NOT EXISTS category TEXT,
+      ADD COLUMN IF NOT EXISTS confidence INT,
+      ADD COLUMN IF NOT EXISTS effect TEXT,
+      ADD COLUMN IF NOT EXISTS context TEXT
+  `;
+
+  // v2: 提案の根拠（参照したログ/目標IDの配列）
+  await sql`
+    ALTER TABLE suggestions
+      ADD COLUMN IF NOT EXISTS evidence JSONB
+  `;
+
+  // v2: Notion同期キュー（非同期・後追い同期）
+  await sql`
+    CREATE TABLE IF NOT EXISTS notion_sync_jobs (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      op TEXT NOT NULL,
+      payload JSONB,
+      attempts INT NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at BIGINT NOT NULL,
+      processed_at BIGINT
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_notion_jobs_queue ON notion_sync_jobs (processed_at, created_at)`;
+
   // 旧member_insights（提案を1件だけ上書き保存していたテーブル）が残っている場合は
   // suggestionsへ1回だけ移行してから削除する。
   const oldInsightsExists = await sql`

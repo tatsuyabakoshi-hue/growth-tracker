@@ -5,9 +5,23 @@ import { getClaude, extractText, CLAUDE_MODEL } from "@/lib/claude";
 import { CS_GROWTH_GUIDELINES } from "@/lib/cs-guidelines";
 
 type RouteParams = { params: Promise<{ id: string; suggestionId: string }> };
-type GoalRow = { content: string };
-type LogRow = { log_date: string; content: string };
+type GoalRow = {
+  content: string;
+  kind: string;
+  category: string | null;
+  status: string;
+  resolved_summary: string | null;
+};
+type LogRow = {
+  log_date: string;
+  content: string;
+  category: string | null;
+  confidence: number | null;
+  effect: string | null;
+};
 type MessageRow = { role: "user" | "assistant"; content: string };
+
+const RECENT_LOG_LIMIT = 20;
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   const { suggestionId } = await params;
@@ -40,22 +54,44 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   const goals = (await sql`
-    SELECT content FROM growth_goals WHERE member_id = ${id} ORDER BY created_at ASC
+    SELECT content, kind, category, status, resolved_summary
+    FROM growth_goals WHERE member_id = ${id} ORDER BY created_at ASC
   `) as GoalRow[];
-  const logs = (await sql`
-    SELECT log_date, content FROM action_logs WHERE member_id = ${id} ORDER BY log_date ASC, created_at ASC
+  const recentLogs = (await sql`
+    SELECT log_date, content, category, confidence, effect
+    FROM action_logs WHERE member_id = ${id}
+    ORDER BY log_date DESC, created_at DESC LIMIT ${RECENT_LOG_LIMIT}
   `) as LogRow[];
+  const logs = [...recentLogs].reverse();
   const priorMessages = (await sql`
     SELECT role, content FROM suggestion_messages
     WHERE suggestion_id = ${suggestionId}
     ORDER BY created_at ASC
   `) as MessageRow[];
 
-  const goalsText = goals.length > 0 ? goals.map((g, i) => `${i + 1}. ${g.content}`).join("\n") : "(まだ記載なし)";
+  const goalsText =
+    goals.length > 0
+      ? goals
+          .map((g) =>
+            g.status === "resolved"
+              ? `[解決済] ${g.resolved_summary || g.content}`
+              : `[未解決/${g.kind === "goal" ? "目標" : "悩み"}${g.category ? "/" + g.category : ""}] ${g.content}`
+          )
+          .join("\n")
+      : "(まだ記載なし)";
   const logsText =
-    logs.length > 0 ? logs.map((l) => `- [${l.log_date}] ${l.content}`).join("\n") : "(まだ記載なし)";
+    logs.length > 0
+      ? logs
+          .map(
+            (l) =>
+              `- [${l.log_date}]${l.category ? `（${l.category}）` : ""}${
+                l.confidence ? `手応え${l.confidence}` : ""
+              } ${l.content}${l.effect ? `／効果: ${l.effect}` : ""}`
+          )
+          .join("\n")
+      : "(まだ記載なし)";
 
-  const contextMessage = `メンバー「${memberRows[0].name}」の記録です。\n\n【悩み事・成長したいこと】\n${goalsText}\n\n【試したこと・実践したこと・効果（日付順）】\n${logsText}\n\n以下は、あなたがこれまでの記録を踏まえて行った提案です。この内容について、メンバー本人から追加の質問が来ます。提案の意図を踏まえて、具体的かつ簡潔に答えてください。\n\n【あなたが行った提案】\n${suggestionRows[0].content}`;
+  const contextMessage = `メンバー「${memberRows[0].name}」の記録です。\n\n【悩み事・成長したいこと】\n${goalsText}\n\n【試したこと・実践したこと・効果（直近${logs.length}件・日付順）】\n${logsText}\n\n以下は、あなたがこれまでの記録を踏まえて行った提案です。この内容について、メンバー本人から追加の質問が来ます。提案の意図を踏まえて、具体的かつ簡潔に答えてください。\n\n【あなたが行った提案】\n${suggestionRows[0].content}`;
 
   const conversation = [
     { role: "user" as const, content: contextMessage },

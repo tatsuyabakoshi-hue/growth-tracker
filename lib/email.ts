@@ -37,3 +37,18 @@ export async function sendReminderEmail(params: {
     text: body,
   });
 }
+
+/** 汎用のメール送信（週次レポート等）。 */
+export async function sendEmail(params: { to: string; subject: string; text: string }): Promise<void> {
+  const from = process.env.EMAIL_FROM;
+  if (!from) {
+    throw new Error("EMAIL_FROM is not set");
+  }
+  const resend = getResend();
+  await resend.emails.send({
+    from,
+    to: params.to,
+    subject: params.subject,
+    text: params.text,
+  });
+}
