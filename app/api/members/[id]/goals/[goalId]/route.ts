@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { generateText } from "@/lib/claude";
+import { generateText } from "@/lib/ai";
 import { enqueueNotionJob } from "@/lib/sync";
 
 type RouteParams = { params: Promise<{ id: string; goalId: string }> };

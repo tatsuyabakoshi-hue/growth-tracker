@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { generateText } from "@/lib/claude";
+import { generateText } from "@/lib/ai";
 import { sendEmail } from "@/lib/email";
 
 const CS_CATEGORIES = ["対応品質", "スピード", "課題発見"];

@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getClaude, extractText, CLAUDE_MODEL } from "@/lib/claude";
+import { aiComplete } from "@/lib/ai";
 import { CS_GROWTH_GUIDELINES } from "@/lib/cs-guidelines";
 import { enqueueNotionJob } from "@/lib/sync";
 
@@ -90,11 +90,9 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       : "(まだ記載なし)";
 
   try {
-    const client = getClaude();
-    const message = await client.messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: 2048,
+    const suggestion = await aiComplete({
       system: CS_GROWTH_GUIDELINES,
+      maxTokens: 2048,
       messages: [
         {
           role: "user",
@@ -103,7 +101,6 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       ],
     });
 
-    const suggestion = extractText(message.content);
     const suggestionId = randomUUID();
     const createdAt = Date.now();
 

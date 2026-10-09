@@ -27,6 +27,28 @@ CSチームメンバーの悩み事・実践ログを蓄積し、Claude APIが�
 
 `lib/cs-guidelines.ts` にCSチーム視点のプロンプトを定義しています。ここを編集すれば、次の提案生成（再デプロイ後）に反映されます。
 
+## AIプロバイダについて
+
+`AI_PROVIDER` で切り替えられます（未指定なら設定済みキーから自動選択）。モデルは `AI_MODEL` で上書きできます。
+
+| AI_PROVIDER | 必要な環境変数 | 既定モデル | 無料枠 |
+|---|---|---|---|
+| `gemini` | `GEMINI_API_KEY` | `gemini-flash-latest` | あり（Google AI Studio） |
+| `groq` | `GROQ_API_KEY` | `llama-3.3-70b-versatile` | あり |
+| `openrouter` | `OPENROUTER_API_KEY` | `meta-llama/llama-3.3-70b-instruct:free` | あり（`:free`） |
+| `openai` | `OPENAI_API_KEY`（＋任意で`OPENAI_BASE_URL`） | `gpt-4o-mini` | 有料 |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-5-20250929` | 有料 |
+
+例（無料のGeminiに切替）:
+
+```bash
+vercel env add AI_PROVIDER production   # gemini と入力
+vercel env add GEMINI_API_KEY production # 取得したキー
+vercel --prod
+```
+
+`GEMINI_API_KEY` は https://aistudio.google.com/apikey で無料発行できます。
+
 ## セットアップ
 
 ```bash
@@ -37,7 +59,7 @@ vercel link
 Vercelダッシュボードの「Storage」からNeon Postgresを追加し、以下の環境変数を設定してください（`.env.example`参照）。
 
 - `DATABASE_URL`（Neonから自動設定）
-- `ANTHROPIC_API_KEY`
+- AIプロバイダのキー（いずれか1つ。無料枠あり: 下記「AIプロバイダ」参照）
 - `APP_PASSWORD`
 - `MASTER_PASSWORD`（任意。設定すると管理者用マスターパスワードとして使えます）
 

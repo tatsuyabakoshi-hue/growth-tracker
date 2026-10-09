@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { getClaude, extractText, CLAUDE_MODEL } from "@/lib/claude";
+import { aiComplete } from "@/lib/ai";
 import { CS_GROWTH_GUIDELINES } from "@/lib/cs-guidelines";
 
 type RouteParams = { params: Promise<{ id: string; suggestionId: string }> };
@@ -101,15 +101,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   ];
 
   try {
-    const client = getClaude();
-    const message = await client.messages.create({
-      model: CLAUDE_MODEL,
-      max_tokens: 1024,
+    const assistantReply = await aiComplete({
       system: CS_GROWTH_GUIDELINES,
+      maxTokens: 1024,
       messages: conversation,
     });
-
-    const assistantReply = extractText(message.content);
     const now = Date.now();
 
     await sql`
