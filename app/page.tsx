@@ -116,6 +116,9 @@ export default function Home() {
 
   const [progress, setProgress] = useState<Progress | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [aiInfo, setAiInfo] = useState<{ provider: string; model: string | null; enabled: boolean } | null>(
+    null
+  );
   const [expandedSuggestionId, setExpandedSuggestionId] = useState<string | null>(null);
   const [messagesBySuggestion, setMessagesBySuggestion] = useState<Record<string, SuggestionMessage[]>>({});
   const [chatInput, setChatInput] = useState("");
@@ -168,6 +171,13 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadMembers();
   }, [loadMembers]);
+
+  useEffect(() => {
+    fetch("/api/ai-info")
+      .then((r) => r.json())
+      .then((data) => setAiInfo(data))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const role = selectedId ? unlockedRoles.get(selectedId) : undefined;
@@ -1317,7 +1327,15 @@ export default function Home() {
             {/* ペイン4: 成長パネル（AI提案履歴 + 追質問チャット） */}
             <section className="flex w-1/3 flex-col overflow-hidden">
               <header className="flex items-center justify-between border-b border-slate-200 p-4">
-                <h2 className="text-sm font-semibold text-slate-500">次回アクション提案</h2>
+                <h2 className="text-sm font-semibold text-slate-500">
+                  次回アクション提案
+                  {aiInfo && (
+                    <span className="ml-2 text-xs font-normal text-slate-400">
+                      AI: {aiInfo.provider}
+                      {aiInfo.model ? ` / ${aiInfo.model}` : ""}
+                    </span>
+                  )}
+                </h2>
                 <button
                   onClick={handleSuggest}
                   disabled={suggesting || (goals.length === 0 && logs.length === 0)}

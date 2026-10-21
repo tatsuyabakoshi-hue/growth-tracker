@@ -16,6 +16,11 @@ function providerName(): string {
   return "anthropic";
 }
 
+/** 現在のAIプロバイダ名（エラー表示・診断用）。 */
+export function currentAiProvider(): string {
+  return providerName();
+}
+
 /** AIが呼べる状態か（該当プロバイダのキーがあるか）。 */
 export function isAiEnabled(): boolean {
   switch (providerName()) {

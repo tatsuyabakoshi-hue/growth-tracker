@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { aiComplete } from "@/lib/ai";
+import { aiComplete, currentAiProvider } from "@/lib/ai";
 import { CS_GROWTH_GUIDELINES } from "@/lib/cs-guidelines";
 import { enqueueSyncJob } from "@/lib/sync";
 
@@ -131,8 +131,9 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ id: suggestionId, content: suggestion, created_at: createdAt });
   } catch (err) {
     console.error(err);
+    const detail = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: "Claude APIでの提案生成に失敗しました。ANTHROPIC_API_KEYを確認してください。" },
+      { error: `AI提案の生成に失敗しました（provider=${currentAiProvider()}）: ${detail.slice(0, 300)}` },
       { status: 502 }
     );
   }
