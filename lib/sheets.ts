@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { getDb } from "@/lib/db";
+import { toEpochMs } from "@/lib/time";
 
 /**
  * Googleスプレッドシート同期（管理・俯瞰用ミラー）。
@@ -23,10 +24,12 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** ミリ秒をJSTの「YYYY-MM-DD HH:mm」に整形する。 */
-function fmtDateTime(ms: number | null | undefined): string {
-  if (!ms) return "";
+/** ミリ秒をJSTの「YYYY-MM-DD HH:mm」に整形する。不正値は空文字。 */
+function fmtDateTime(value: unknown): string {
+  const ms = toEpochMs(value);
+  if (ms === null) return "";
   const d = new Date(ms + JST_OFFSET_MS);
+  if (Number.isNaN(d.getTime())) return "";
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 

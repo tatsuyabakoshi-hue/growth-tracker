@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDate } from "@/lib/time";
+
 const CS_CATEGORIES = ["対応品質", "スピード", "課題発見"];
 
 type Goal = {
@@ -50,14 +52,14 @@ export function GrowthTimeline({ goals, logs }: { goals: Goal[]; logs: ActionLog
     if (g.hidden) continue;
     events.push({
       key: `g-${g.id}`,
-      date: new Date(g.created_at).toISOString().slice(0, 10),
+      date: formatDate(g.created_at),
       kind: g.kind === "goal" ? "goal" : "worry",
       text: g.content || "",
     });
     if (g.status === "resolved" && g.resolved_at) {
       events.push({
         key: `gr-${g.id}`,
-        date: new Date(g.resolved_at).toISOString().slice(0, 10),
+        date: formatDate(g.resolved_at),
         kind: "resolved",
         text: g.content || "",
       });

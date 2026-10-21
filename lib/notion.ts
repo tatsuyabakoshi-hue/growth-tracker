@@ -1,4 +1,5 @@
 import { Client } from "@notionhq/client";
+import { formatDateTime, toEpochMs } from "@/lib/time";
 
 let client: Client | null = null;
 
@@ -44,8 +45,9 @@ function toTitle(text: string | null | undefined) {
   return [{ text: { content: (text || "").slice(0, 200) } }];
 }
 
-function toIso(timestampMs: number): string {
-  return new Date(timestampMs).toISOString();
+function toIso(value: unknown): string {
+  const ms = toEpochMs(value);
+  return ms === null ? "" : new Date(ms).toISOString();
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -170,7 +172,7 @@ export async function upsertSuggestionPage(params: {
   evidenceLogPageIds?: string[];
   createdAt: number;
 }): Promise<string> {
-  const title = `${params.memberName}への提案 (${new Date(params.createdAt).toLocaleString("ja-JP")})`;
+  const title = `${params.memberName}への提案 (${formatDateTime(params.createdAt)})`;
   const properties: Props = {
     タイトル: { title: toTitle(title) },
     提案内容: { rich_text: toRichText(params.content) },

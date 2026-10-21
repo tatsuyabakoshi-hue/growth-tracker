@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { WeeklyChart } from "./components/WeeklyChart";
 import { GrowthTimeline } from "./components/GrowthTimeline";
+import { formatDateTime } from "@/lib/time";
 
 type Role = "self" | "admin";
 
@@ -1358,7 +1359,7 @@ export default function Home() {
                           onClick={() => handleToggleSuggestion(s.id)}
                           className="flex w-full items-center justify-between px-3 py-2 text-left text-xs text-slate-500 hover:bg-slate-50"
                         >
-                          <span>{new Date(s.created_at).toLocaleString("ja-JP")}</span>
+                          <span>{formatDateTime(s.created_at)}</span>
                           <span>{expanded ? "閉じる ▲" : "開く ▼"}</span>
                         </button>
                         {expanded && (
