@@ -49,6 +49,26 @@ type Progress = {
   goals_resolved: number;
   weekly_counts: { week_start: string; count: number }[];
 };
+type AdminMember = {
+  id: string;
+  name: string;
+  email: string | null;
+  streak: number;
+  logs_total: number;
+  logs_week: number;
+  logs_30: number;
+  avg_confidence: number | null;
+  last_log_date: string | null;
+  goals_open: number;
+  goals_resolved: number;
+  overdue: number;
+  categories: Record<string, { count: number; avg: number | null }>;
+};
+type AdminOverview = {
+  members: AdminMember[];
+  totals: { members: number; logs_week: number; active_week: number; goals_open: number; overdue: number };
+  generated_at: number;
+};
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -108,6 +128,13 @@ export default function Home() {
   const [notifyReminderDraft, setNotifyReminderDraft] = useState(true);
   const [savingNotify, setSavingNotify] = useState(false);
 
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminAuthed, setAdminAuthed] = useState(false);
+  const [adminError, setAdminError] = useState("");
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminData, setAdminData] = useState<AdminOverview | null>(null);
+
   const [error, setError] = useState("");
 
   const loadMembers = useCallback(async () => {
@@ -162,6 +189,7 @@ export default function Home() {
     setUnlockError("");
     setShowNotifySettings(false);
     setShowTimeline(false);
+    setShowAdmin(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, unlockedRoles, loadMemberData]);
 
@@ -515,6 +543,69 @@ export default function Home() {
     router.push("/login");
   }
 
+  async function loadAdminOverview(password: string) {
+    const res = await fetch("/api/admin/overview", {
+      headers: { "x-master-password": password },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "取得に失敗しました");
+    setAdminData(data as AdminOverview);
+    setAdminAuthed(true);
+  }
+
+  async function handleAdminLogin(e: FormEvent) {
+    e.preventDefault();
+    if (!adminPassword) return;
+    setAdminLoading(true);
+    setAdminError("");
+    try {
+      await loadAdminOverview(adminPassword);
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : "取得に失敗しました");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  async function handleAdminRefresh() {
+    if (!adminAuthed) return;
+    setAdminLoading(true);
+    setAdminError("");
+    try {
+      await loadAdminOverview(adminPassword);
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : "取得に失敗しました");
+    } finally {
+      setAdminLoading(false);
+    }
+  }
+
+  function closeAdmin() {
+    setShowAdmin(false);
+    setAdminAuthed(false);
+    setAdminPassword("");
+    setAdminData(null);
+    setAdminError("");
+  }
+
+  // ダッシュボードから、マスターパスワードのままそのメンバーの画面へ移動する。
+  async function openMemberFromAdmin(memberId: string) {
+    try {
+      const res = await fetch(`/api/members/${memberId}/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "開けませんでした");
+      setUnlockedRoles((prev) => new Map(prev).set(memberId, (data.role as Role) || "admin"));
+      setShowAdmin(false);
+      setSelectedId(memberId);
+    } catch (err) {
+      showError(err, "開けませんでした");
+    }
+  }
+
   const selectedMember = members.find((m) => m.id === selectedId) || null;
   const isUnlocked = !!selectedId && unlockedRoles.has(selectedId);
   const goalsById = new Map(goals.map((g) => [g.id, g]));
@@ -614,6 +705,20 @@ export default function Home() {
           )}
         </div>
         <button
+          onClick={() => {
+            if (showAdmin) {
+              closeAdmin();
+            } else {
+              setShowAdmin(true);
+            }
+          }}
+          className={`border-t border-slate-200 p-3 text-left text-xs ${
+            showAdmin ? "bg-slate-900 text-white" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          管理者ダッシュボード（全員を俯瞰）
+        </button>
+        <button
           onClick={handleLogout}
           className="border-t border-slate-200 p-3 text-left text-xs text-slate-400 hover:text-slate-600"
         >
@@ -621,14 +726,152 @@ export default function Home() {
         </button>
       </aside>
 
+      {/* 管理者ダッシュボード */}
+      {showAdmin && (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-700">管理者ダッシュボード</h2>
+              <p className="text-xs text-slate-400">
+                全メンバーの記録状況を俯瞰します（マスターパスワードで開いています）
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              {adminAuthed && (
+                <button
+                  onClick={handleAdminRefresh}
+                  disabled={adminLoading}
+                  className="text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50"
+                >
+                  {adminLoading ? "更新中..." : "更新"}
+                </button>
+              )}
+              <button onClick={closeAdmin} className="text-xs text-slate-500 hover:text-slate-800">
+                閉じる
+              </button>
+            </div>
+          </div>
+
+          {!adminAuthed && (
+            <div className="flex flex-1 items-center justify-center">
+              <form
+                onSubmit={handleAdminLogin}
+                className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm"
+              >
+                <p className="mb-1 text-sm text-slate-500">管理者ダッシュボードを開く</p>
+                <p className="mb-4 text-xs text-slate-400">マスターパスワードを入力してください</p>
+                <input
+                  type="password"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  placeholder="マスターパスワード"
+                  className="mb-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+                  autoFocus
+                />
+                {adminError && <p className="mb-3 text-sm text-red-600">{adminError}</p>}
+                <button
+                  type="submit"
+                  disabled={adminLoading || !adminPassword}
+                  className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {adminLoading ? "確認中..." : "開く"}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {adminAuthed && adminData && (
+            <div className="flex-1 overflow-auto p-4">
+              <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                <Stat label="メンバー" value={`${adminData.totals.members}`} />
+                <Stat label="今週の実践ログ" value={`${adminData.totals.logs_week}`} />
+                <Stat label="今週動いた人" value={`${adminData.totals.active_week}`} />
+                <Stat label="未解決の悩み/目標" value={`${adminData.totals.goals_open}`} />
+                <Stat
+                  label="期限切れ"
+                  value={`${adminData.totals.overdue}`}
+                  accent={adminData.totals.overdue > 0}
+                />
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-slate-500">
+                      <th className="px-2 py-2">氏名</th>
+                      <th className="px-2 py-2 text-right">継続</th>
+                      <th className="px-2 py-2 text-right">今週</th>
+                      <th className="px-2 py-2 text-right">平均手応え</th>
+                      {CS_CATEGORIES.map((c) => (
+                        <th key={c} className="px-2 py-2 text-right">
+                          {c}
+                        </th>
+                      ))}
+                      <th className="px-2 py-2 text-right">未解決</th>
+                      <th className="px-2 py-2 text-right">解決済</th>
+                      <th className="px-2 py-2 text-right">期限切れ</th>
+                      <th className="px-2 py-2">最終記録</th>
+                      <th className="px-2 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminData.members.map((m) => (
+                      <tr key={m.id} className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="px-2 py-2 font-medium text-slate-800">{m.name}</td>
+                        <td className="px-2 py-2 text-right text-slate-600">{m.streak}日</td>
+                        <td className="px-2 py-2 text-right text-slate-600">{m.logs_week}</td>
+                        <td className="px-2 py-2 text-right text-slate-600">
+                          {m.avg_confidence !== null ? m.avg_confidence.toFixed(1) : "-"}
+                        </td>
+                        {CS_CATEGORIES.map((c) => {
+                          const cell = m.categories[c] || { count: 0, avg: null };
+                          return (
+                            <td key={c} className="px-2 py-2 text-right text-slate-600">
+                              {cell.count}
+                              {cell.avg !== null ? (
+                                <span className="text-slate-400"> / {cell.avg.toFixed(1)}</span>
+                              ) : null}
+                            </td>
+                          );
+                        })}
+                        <td className="px-2 py-2 text-right text-slate-600">{m.goals_open}</td>
+                        <td className="px-2 py-2 text-right text-slate-600">{m.goals_resolved}</td>
+                        <td
+                          className={`px-2 py-2 text-right ${
+                            m.overdue > 0 ? "font-semibold text-red-600" : "text-slate-600"
+                          }`}
+                        >
+                          {m.overdue}
+                        </td>
+                        <td className="px-2 py-2 text-slate-500">{m.last_log_date || "-"}</td>
+                        <td className="px-2 py-2 text-right">
+                          <button
+                            onClick={() => openMemberFromAdmin(m.id)}
+                            className="rounded-md border border-slate-300 px-2 py-0.5 text-slate-700 hover:bg-slate-100"
+                          >
+                            開く
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-3 text-xs text-slate-400">
+                「継続」は連続記録日数、「平均手応え」とカテゴリは直近30日。「期限切れ」は期限を過ぎた未解決の悩み/目標の数です。
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ペイン2〜4 */}
-      {!selectedMember && (
+      {!showAdmin && !selectedMember && (
         <div className="flex flex-1 items-center justify-center text-sm text-slate-400">
           左の一覧から氏名を選択してください
         </div>
       )}
 
-      {selectedMember && !isUnlocked && (
+      {!showAdmin && selectedMember && !isUnlocked && (
         <div className="flex flex-1 items-center justify-center">
           <form
             onSubmit={handleUnlock}
@@ -658,7 +901,7 @@ export default function Home() {
         </div>
       )}
 
-      {selectedMember && isUnlocked && (
+      {!showAdmin && selectedMember && isUnlocked && (
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* 進捗サマリー + 振り返り + 通知設定バー */}
           <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-slate-50 px-4 py-2">
@@ -1157,6 +1400,17 @@ export default function Home() {
           {error}
         </div>
       )}
+    </div>
+  );
+}
+
+function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div
+      className={`rounded-md border p-3 ${accent ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}
+    >
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className={`mt-1 text-lg font-bold ${accent ? "text-red-600" : "text-slate-800"}`}>{value}</p>
     </div>
   );
 }

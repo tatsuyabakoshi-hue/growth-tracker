@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { aiComplete } from "@/lib/ai";
 import { CS_GROWTH_GUIDELINES } from "@/lib/cs-guidelines";
-import { enqueueNotionJob } from "@/lib/sync";
+import { enqueueSyncJob } from "@/lib/sync";
 
 type RouteParams = { params: Promise<{ id: string }> };
 type GoalRow = {
@@ -126,7 +126,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       VALUES (${suggestionId}, ${id}, ${suggestion}, ${createdAt}, ${JSON.stringify(evidence)}::jsonb)
     `;
 
-    await enqueueNotionJob("suggestion", suggestionId, "upsert");
+    await enqueueSyncJob("suggestion", suggestionId, "upsert");
 
     return NextResponse.json({ id: suggestionId, content: suggestion, created_at: createdAt });
   } catch (err) {

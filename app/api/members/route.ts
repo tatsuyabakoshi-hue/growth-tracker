@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
-import { enqueueNotionJob } from "@/lib/sync";
+import { enqueueSyncJob } from "@/lib/sync";
 
 export async function GET() {
   const sql = getDb();
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     VALUES (${id}, ${name}, ${passwordHash}, ${createdAt}, ${email}, true)
   `;
 
-  await enqueueNotionJob("member", id, "upsert");
+  await enqueueSyncJob("member", id, "upsert");
 
   return NextResponse.json({ id, name, email, reminder_enabled: true, created_at: createdAt });
 }

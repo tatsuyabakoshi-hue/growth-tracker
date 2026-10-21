@@ -10,6 +10,7 @@ import {
   upsertSuggestionPage,
   type NotionEntityType,
 } from "@/lib/notion";
+import { scheduleSheetsSync } from "@/lib/sheets";
 
 type Job = {
   id: string;
@@ -25,16 +26,19 @@ const MAX_ATTEMPTS = 5;
 const TYPE_PRIORITY: Record<NotionEntityType, number> = { member: 0, goal: 1, log: 2, suggestion: 3 };
 
 /**
- * Notion同期ジョブをキューに積む（非同期・後追い）。
- * Notionが未設定なら何もしない。
+ * 書き込みを契機に、外部ミラー（Notion / Googleスプレッドシート）への同期を予約する。
+ *
+ * - スプレッドシート: スナップショット同期を応答後に予約する（Notionとは独立）。
+ * - Notion: ジョブをキューに積む（非同期・後追い）。未設定ならスキップ。
  */
-export async function enqueueNotionJob(
+export async function enqueueSyncJob(
   entityType: NotionEntityType,
   entityId: string,
   op: "upsert" | "archive",
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   payload: Record<string, any> = {}
 ): Promise<void> {
+  scheduleSheetsSync();
   if (!isNotionEnabled()) return;
   const sql = getDb();
   await sql`

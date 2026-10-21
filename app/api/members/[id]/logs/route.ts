@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { enqueueNotionJob } from "@/lib/sync";
+import { enqueueSyncJob } from "@/lib/sync";
 
 type RouteParams = { params: Promise<{ id: string }> };
 
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       (${logId}, ${id}, ${logDate}, ${content}, ${createdAt}, ${relatedGoalId}, ${category}, ${confidence}, ${effect}, ${context})
   `;
 
-  await enqueueNotionJob("log", logId, "upsert");
+  await enqueueSyncJob("log", logId, "upsert");
 
   return NextResponse.json({
     id: logId,

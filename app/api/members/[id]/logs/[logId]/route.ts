@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { enqueueNotionJob } from "@/lib/sync";
+import { enqueueSyncJob } from "@/lib/sync";
 
 type RouteParams = { params: Promise<{ id: string; logId: string }> };
 
@@ -64,7 +64,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     RETURNING id, log_date, content, category, confidence, effect, context, related_goal_id, created_at
   `;
 
-  await enqueueNotionJob("log", logId, "upsert");
+  await enqueueSyncJob("log", logId, "upsert");
 
   return NextResponse.json(rows[0]);
 }
@@ -83,7 +83,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
   const notionPageId = deleted[0].notion_page_id as string | null;
   if (notionPageId) {
-    await enqueueNotionJob("log", logId, "archive", { notionPageId });
+    await enqueueSyncJob("log", logId, "archive", { notionPageId });
   }
 
   return NextResponse.json({ ok: true });
