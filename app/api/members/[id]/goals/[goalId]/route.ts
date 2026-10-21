@@ -78,7 +78,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         : "(関連する実践ログなし)";
     const summary = await generateText(
       "あなたは成長記録の要約者です。前置きや見出しは書かず、日本語で簡潔に要約してください。",
-      `次の悩み/目標が解決しました。関連する実践ログを踏まえ、「何が効いたか」が分かる1〜2文に要約してください。\n\n【悩み/目標】\n${existing.content}\n\n【実践ログ】\n${logsText}`
+      `次の悩み/目標が解決しました。関連する実践ログを踏まえ、「何が効いたか」が分かる1〜2文に要約してください。\n\n【悩み/目標】\n${existing.content}\n\n【実践ログ】\n${logsText}`,
+      2048
     );
     if (summary) updates.resolved_summary = summary.trim();
   }

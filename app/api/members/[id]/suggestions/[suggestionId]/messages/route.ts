@@ -103,9 +103,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const assistantReply = await aiComplete({
       system: CS_GROWTH_GUIDELINES,
-      maxTokens: 1024,
+      maxTokens: 4096,
       messages: conversation,
     });
+    if (!assistantReply) {
+      throw new Error("AIが本文を返しませんでした（推論でmax_tokensを使い切った可能性）。");
+    }
     const now = Date.now();
 
     await sql`

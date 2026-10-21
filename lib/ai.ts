@@ -3,6 +3,9 @@
 //   anthropic | gemini | groq | openrouter | openai
 // 未指定なら、設定済みのキーから自動選択する。
 // モデルは AI_MODEL で上書き可能。
+//
+// 注意: 推論(reasoning)付きモデル（例: ゲートウェイの JTC*）は、推論トークンも
+// max_tokens を消費する。小さすぎると本文が空になるため、既定値は大きめにしている。
 
 export type AiMessage = { role: "user" | "assistant"; content: string };
 
@@ -107,7 +110,7 @@ export async function aiComplete(params: {
   messages: AiMessage[];
   maxTokens?: number;
 }): Promise<string> {
-  const { system, messages, maxTokens = 1024 } = params;
+  const { system, messages, maxTokens = 4096 } = params;
   switch (providerName()) {
     case "gemini":
       return geminiComplete(system, messages, maxTokens);
@@ -144,7 +147,7 @@ export async function aiComplete(params: {
 }
 
 /** 単発生成（要約など）。キー未設定ならnull。エラー時もnull。 */
-export async function generateText(system: string, user: string, maxTokens = 400): Promise<string | null> {
+export async function generateText(system: string, user: string, maxTokens = 2048): Promise<string | null> {
   if (!isAiEnabled()) return null;
   try {
     return await aiComplete({ system, messages: [{ role: "user", content: user }], maxTokens });

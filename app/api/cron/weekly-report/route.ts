@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
     const summary = await generateText(
       "あなたはCSチームの成長コーチです。励ましつつ、事実に基づいて簡潔に振り返りを述べてください。",
       `CSメンバー「${m.name}」の今週の記録です。\n実践ログ: ${logs.length}件（対応品質${byCategory[0]} / スピード${byCategory[1]} / 課題発見${byCategory[2]}）\n平均手応え: ${avgConfidence ? avgConfidence.toFixed(1) : "未記録"}\n今週解決した悩み/目標: ${resolvedCount}件\n\n【今週の実践ログ】\n${logsText}\n\nこの内容を3〜4文で前向きに振り返り、来週の一歩を1つ提案してください。`,
-      500
+      2048
     );
 
     const bodyParts = [

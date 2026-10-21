@@ -92,7 +92,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
   try {
     const suggestion = await aiComplete({
       system: CS_GROWTH_GUIDELINES,
-      maxTokens: 2048,
+      maxTokens: 8192,
       messages: [
         {
           role: "user",
@@ -100,6 +100,10 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
         },
       ],
     });
+
+    if (!suggestion) {
+      throw new Error("AIが本文を返しませんでした（推論でmax_tokensを使い切った可能性）。");
+    }
 
     const suggestionId = randomUUID();
     const createdAt = Date.now();
